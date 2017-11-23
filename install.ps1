@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param (
 	[string]$Path,
-	[switch]$Beta
+	[switch]$Beta,
+	[switch]$Confirm
 )
 
 try {
@@ -13,6 +14,8 @@ catch {
 	Write-Output "dbatools was not installed by the PowerShell Gallery, continuing with web install."
 }
 
+# Problem, when we import the DLLs get loaded for SMO, and we cannot replace them.
+# Removing the module does not help.
 $module = Import-Module -Name dbatools -ErrorAction SilentlyContinue
 $localpath = $module.ModuleBase
 
@@ -89,15 +92,45 @@ Unblock-File $zipfile -ErrorAction SilentlyContinue
 Write-Output "Unzipping"
 
 # Keep it backwards compatible
-Remove-Item -ErrorAction SilentlyContinue "$temp\dbatools-$branch" -Recurse -Force
+$TempFolder = "$temp\dbatools-$branch"
+Remove-Item -ErrorAction SilentlyContinue $TempFolder -Recurse -Force
 $shell = New-Object -ComObject Shell.Application
 $zipPackage = $shell.NameSpace($zipfile)
 $destinationFolder = $shell.NameSpace($temp)
 $destinationFolder.CopyHere($zipPackage.Items())
 
-Write-Output "Cleaning up"
-Move-Item -Path "$temp\dbatools-$branch\*" $path -ErrorAction SilentlyContinue -Force
-Remove-Item -Path "$temp\dbatools-$branch" -Recurse -Force
+Write-Debug "Removing any item which exists in source and destination, this could be dangerous if symlinks exist."
+# Neither of these two approaches are doing what we need to do
+$module = $null
+Remove-Module dbatools -Force -ErrorAction SilentlyContinue
+
+# Remove anything in the destination folder
+# I know this is a bit more than we originally we doing, but without this any Move/Copy will fail
+# This is probably not the ideal way to do it, but I want to have a basic check for sanity of file deletions
+$CurrentProjectFileCount = (Get-ChildItem $TempFolder -Recurse).Count
+$OldProjectFilecount = (Get-ChildItem $Path -Recurse).Count
+if ($OldProjectFilecount -gt ($CurrentProjectFileCount*1.1)){
+	Write-Output (
+		"We detected that the location you are installing dbatools to has $($OldProjectFileCount/$CurrentProjectFileCount * 100)% more files than the module at this time.`n" +
+		"As a part of the install process, dbatools removes any files in subdirectories of its module.`n" +
+		"This may be an indication of a path specificed which contains additional user files, or " +
+		"simply that we did something awesome and reduced the amount of code in the project."
+	)
+
+	Write-Output "Please verify $Path is where you intend to install dbatools, and use the `$Confirm switch to bypass this warning."
+	exit
+} else {
+	Remove-Item $Path -Force -Recurse
+}
+
+# Move the pieces from a to b
+foreach ($Source in (Get-ChildItem $TempFolder -Exclude "*.dll")){
+	$SourceName = $Source.FullName
+	$DestinationFileName = $SourceName.Replace($TempFolder, $Path)
+  Move-Item -Path $SourceName -Destination $DestinationFileName -Force
+}
+
+Remove-Item -Path $TempFolder -Recurse -Force
 Remove-Item -Path $zipfile -Recurse -Force
 
 Write-Output "Done! Please report any bugs to dbatools.io/issues or clemaire@gmail.com."
