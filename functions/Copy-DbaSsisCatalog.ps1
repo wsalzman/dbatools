@@ -163,7 +163,7 @@ function Copy-DbaSsisCatalog {
 				}
 			}
 			catch {
-				Write-Message -Level Warning 
+				Stop-Function -Message "Deployment Failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue
 			}
 			finally {
 				if ($sqlConn.State -eq "Open") {
@@ -266,7 +266,7 @@ function Copy-DbaSsisCatalog {
 			Get-RemoteIntegrationService -Computer $Destination
 		}
 		catch {
-			Write-Message -Level Warning -Message "An error occurred when checking the destination for Integration Services. Is Integration Services installed?"
+			Stop-Function -Message "An error occurred when checking the destination for Integration Services. Is Integration Services installed?" -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue
 		}
 		
 		try {
@@ -274,14 +274,14 @@ function Copy-DbaSsisCatalog {
 			$sourceSSIS = New-Object "$ISNamespace.IntegrationServices" $sourceConnection
 		}
 		catch {
-			Write-Message -Level Warning -Message "There was an error connecting to the source integration services."
+			Stop-Function -Message "There was an error connecting to the source integration services." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue
 		}
 		try {
 			Write-Verbose "Connecting to $Destination integration services."
 			$destinationSSIS = New-Object "$ISNamespace.IntegrationServices" $destinationConnection
 		}
 		catch {
-			Write-Message -Level Warning -Message "There was an error connecting to the destination integration services."
+			Stop-Function -Message "There was an error connecting to the destination integration services." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue
 		}
 		
 		$sourceCatalog = $sourceSSIS.Catalogs | Where-Object { $_.Name -eq "SSISDB" }
@@ -371,9 +371,7 @@ function Copy-DbaSsisCatalog {
 								New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description -Force
 							}
 							catch {
-								Write-Message -Level Warning
-							}
-							
+								Stop-Function -Message "Dropping folder $folder failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue							
 						}
 					}
 				}
@@ -383,11 +381,10 @@ function Copy-DbaSsisCatalog {
 							New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description
 						}
 						catch {
-							Write-Message -Level Warning
-						}
+							Stop-Function -Message "Failed creating folder $folder." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue						}
 					}
 				}
-			}
+			}}
 			else {
 				throw "The source folder provided does not exist in the source Integration Services catalog."
 			}
@@ -400,8 +397,7 @@ function Copy-DbaSsisCatalog {
 							New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description
 						}
 						catch {
-							Write-Message -Level Warning
-						}
+							Stop-Function -Message "Creating folder $($srcFolder.Name) failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue						}
 					}
 				}
 				else {
@@ -415,8 +411,7 @@ function Copy-DbaSsisCatalog {
 								New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description -Force
 							}
 							catch {
-								Write-Message -Level Warning
-							}
+								Stop-Function -Message "Dropping folder $(srcFolder.Name) failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue							}
 						}
 					}
 				}
@@ -452,8 +447,7 @@ function Copy-DbaSsisCatalog {
 							Invoke-ProjectDeployment -Folder $f.Name -Project $project
 						}
 						catch {
-							Write-Message -Level Warning
-						}
+							Stop-Function -Message "Deploying project $project failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue						}
 					}
 				}
 			}
@@ -466,8 +460,7 @@ function Copy-DbaSsisCatalog {
 							Invoke-ProjectDeployment -Project $proj.Name -Folder $curFolder.Name
 						}
 						catch {
-							Write-Message -Level Warning
-						}
+							Stop-Function -Message "Deploying project $($proj.Name) from folder $(curFolder.Name) failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue						}
 					}
 				}
 			}
@@ -486,8 +479,7 @@ function Copy-DbaSsisCatalog {
 								New-FolderEnvironment -Folder $f.Name -Environment $environment
 							}
 							catch {
-								Write-Message -Level Warning
-							}
+								Stop-Function -Message "Deploying environment $environment failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue							}
 						}
 					}
 					else {
@@ -500,8 +492,7 @@ function Copy-DbaSsisCatalog {
 									New-FolderEnvironment -Folder $f.Name -Environment $environment -Force
 								}
 								catch {
-									Write-Message -Level Warning
-								}
+									Stop-Function -Message "Dropping existing environment $environment failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue								}
 							}
 						}
 					}
@@ -517,9 +508,7 @@ function Copy-DbaSsisCatalog {
 								New-FolderEnvironment -Environment $env.Name -Folder $curFolder.Name
 							}
 							catch {
-								Write-Message -Level Warning
-							}
-						}
+								Stop-Function -Message "Deploying environment $($env.Name) failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue						}
 					}
 					else {
 						if (!$force) {
@@ -532,8 +521,7 @@ function Copy-DbaSsisCatalog {
 									New-FolderEnvironment -Environment $env.Name -Folder $curFolder.Name -Force
 								}
 								catch {
-									Write-Message -Level Warning
-								}
+									Stop-Function -Message "Deploying environment $($env.Name) failed." -ErrorRecord $_ -Exception $_.Exception.InnerException -Target $server -Continue								}
 							}
 						}
 					}
@@ -544,4 +532,5 @@ function Copy-DbaSsisCatalog {
 	end {
 		Test-DbaDeprecation -DeprecatedOn "1.0.0" -EnableException:$false -Alias Copy-SqlSsisCatalog
 	}
+}
 }
