@@ -201,8 +201,7 @@ function Get-DbaRestoreHistory {
 				$results | Select-DefaultView -Exclude first_lsn, last_lsn, checkpoint_lsn, database_backup_lsn, RowError, RowState, Table, ItemArray, HasErrors
 			}
 			catch {
-				Write-Warning $_
-				Write-Exception $_
+				Write-Message -Level Warning -Message "Gathering Restore History for $Server failed."
 				continue
 			}
 		}

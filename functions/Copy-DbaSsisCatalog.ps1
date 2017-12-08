@@ -163,7 +163,7 @@ function Copy-DbaSsisCatalog {
 				}
 			}
 			catch {
-				Write-Exception $_
+				Write-Message -Level Warning 
 			}
 			finally {
 				if ($sqlConn.State -eq "Open") {
@@ -266,8 +266,7 @@ function Copy-DbaSsisCatalog {
 			Get-RemoteIntegrationService -Computer $Destination
 		}
 		catch {
-			Write-Exception $_
-			throw "An error occurred when checking the destination for Integration Services. Is Integration Services installed?"
+			Write-Message -Level Warning -Message "An error occurred when checking the destination for Integration Services. Is Integration Services installed?"
 		}
 		
 		try {
@@ -275,16 +274,14 @@ function Copy-DbaSsisCatalog {
 			$sourceSSIS = New-Object "$ISNamespace.IntegrationServices" $sourceConnection
 		}
 		catch {
-			Write-Exception $_
-			throw "There was an error connecting to the source integration services."
+			Write-Message -Level Warning -Message "There was an error connecting to the source integration services."
 		}
 		try {
 			Write-Verbose "Connecting to $Destination integration services."
 			$destinationSSIS = New-Object "$ISNamespace.IntegrationServices" $destinationConnection
 		}
 		catch {
-			Write-Exception $_
-			throw "There was an error connecting to the destination integration services."
+			Write-Message -Level Warning -Message "There was an error connecting to the destination integration services."
 		}
 		
 		$sourceCatalog = $sourceSSIS.Catalogs | Where-Object { $_.Name -eq "SSISDB" }
@@ -374,7 +371,7 @@ function Copy-DbaSsisCatalog {
 								New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description -Force
 							}
 							catch {
-								Write-Exception $_
+								Write-Message -Level Warning
 							}
 							
 						}
@@ -386,7 +383,7 @@ function Copy-DbaSsisCatalog {
 							New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description
 						}
 						catch {
-							Write-Exception $_
+							Write-Message -Level Warning
 						}
 					}
 				}
@@ -403,7 +400,7 @@ function Copy-DbaSsisCatalog {
 							New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description
 						}
 						catch {
-							Write-Exception $_
+							Write-Message -Level Warning
 						}
 					}
 				}
@@ -418,7 +415,7 @@ function Copy-DbaSsisCatalog {
 								New-CatalogFolder -Folder $srcFolder.Name -Description $srcFolder.Description -Force
 							}
 							catch {
-								Write-Exception $_
+								Write-Message -Level Warning
 							}
 						}
 					}
@@ -455,7 +452,7 @@ function Copy-DbaSsisCatalog {
 							Invoke-ProjectDeployment -Folder $f.Name -Project $project
 						}
 						catch {
-							Write-Exception $_
+							Write-Message -Level Warning
 						}
 					}
 				}
@@ -469,7 +466,7 @@ function Copy-DbaSsisCatalog {
 							Invoke-ProjectDeployment -Project $proj.Name -Folder $curFolder.Name
 						}
 						catch {
-							Write-Exception $_
+							Write-Message -Level Warning
 						}
 					}
 				}
@@ -489,7 +486,7 @@ function Copy-DbaSsisCatalog {
 								New-FolderEnvironment -Folder $f.Name -Environment $environment
 							}
 							catch {
-								Write-Exception $_
+								Write-Message -Level Warning
 							}
 						}
 					}
@@ -503,7 +500,7 @@ function Copy-DbaSsisCatalog {
 									New-FolderEnvironment -Folder $f.Name -Environment $environment -Force
 								}
 								catch {
-									Write-Exception $_
+									Write-Message -Level Warning
 								}
 							}
 						}
@@ -520,7 +517,7 @@ function Copy-DbaSsisCatalog {
 								New-FolderEnvironment -Environment $env.Name -Folder $curFolder.Name
 							}
 							catch {
-								Write-Exception $_
+								Write-Message -Level Warning
 							}
 						}
 					}
@@ -535,7 +532,7 @@ function Copy-DbaSsisCatalog {
 									New-FolderEnvironment -Environment $env.Name -Folder $curFolder.Name -Force
 								}
 								catch {
-									Write-Exception $_
+									Write-Message -Level Warning
 								}
 							}
 						}
