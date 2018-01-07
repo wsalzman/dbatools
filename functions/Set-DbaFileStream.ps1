@@ -20,6 +20,9 @@ function Set-DbaFileStream {
 
             To connect as a different Windows user, run PowerShell as that user.
 
+		.PARAMETER Credential
+			Credential object used to connect to the computer as a different user.
+
         .PARAMETER FileStreamLevel
             The level to of FileStream to be enabled:
             0 - FileStream disabled
@@ -63,6 +66,7 @@ function Set-DbaFileStream {
         [Alias("ServerInstance", "SqlServer")]
         [DbaInstance[]]$SqlInstance,
         [PSCredential]$SqlCredential,
+        [PSCredential]$Credential,
         [ValidateSet("Disabled", "Transact-SQL-Enabled", "Full-Access-Enabled")]
         [object]$FileStreamLevel,
         [switch]$Force,
@@ -70,17 +74,17 @@ function Set-DbaFileStream {
         [switch]$EnableException
     )
     begin {
-		$idServiceFS =[ordered]@{
-			0 = 'Disabled'
-			1 = 'Transact-SQL access'
-			2 = 'Transact-SQL and I/O access'
-			3 = 'Transact-SQL, I/O and remote client access'
-		}
-		$idInstanceFS =[ordered]@{
-			0 = 'Disabled'
-			1 = 'Transact-SQL access enabled'
-			2 = 'Full access enabled'
-		}
+        $idServiceFS =[ordered]@{
+            0 = 'Disabled'
+            1 = 'Transact-SQL access'
+            2 = 'Transact-SQL and I/O access'
+            3 = 'Transact-SQL, I/O and remote client access'
+        }
+        $idInstanceFS =[ordered]@{
+            0 = 'Disabled'
+            1 = 'Transact-SQL access enabled'
+            2 = 'Full access enabled'
+        }
 
         if ($FileStreamLevel -notin ('0', '1', '2')) {
             $NewFileStream = switch ($FileStreamLevel) {
@@ -95,16 +99,15 @@ function Set-DbaFileStream {
     }
     process {
         foreach ($instance in $SqlInstance) {
-            $computer = $instance.ComputerName
-            $instanceName = $instance.InstanceName
+            try {
+                $orgFileStreamConfig = Get-DbaFilestream -SqlInstance $instance -SqlCredential
+            }
+            catch {
 
-            <# Get Service-Level information #>
-            if ($instance.IsLocalHost) {
-                $computerName = $computer
             }
-            else {
-                $computerName = (Resolve-DbaNetworkName -ComputerName $computer -Credential $Credential).FullComputerName
-            }
+
+            $computer = $orgFileStreamConfig.ComputerName
+            $instanceName = $orgFileStreamConfig.InstanceName
 
             Write-Message -Level Verbose -Message "Attempting to connect to $computer"
             try {
@@ -130,12 +133,12 @@ function Set-DbaFileStream {
                 Stop-Function -Message "Failure" -Category ConnectionError -ErrorRecord $_ -Target $instance -Continue
             }
 
-			try {
-				$instanceFS = Get-DbaSpConfigure -SqlInstance $server -ConfigName FilestreamAccessLevel | Select-Object ConfiguredValue, RunningValue
-			}
-			catch {
-				Stop-Function -Message "Issue collectin instance-level configuration on $instanceName" -Target $server -ErrorRecord $_ -Exception $_.Exception -Continue
-			}
+            try {
+                $instanceFS = Get-DbaSpConfigure -SqlInstance $server -ConfigName FilestreamAccessLevel | Select-Object ConfiguredValue, RunningValue
+            }
+            catch {
+                Stop-Function -Message "Issue collectin instance-level configuration on $instanceName" -Target $server -ErrorRecord $_ -Exception $_.Exception -Continue
+            }
 
             if ($FileStreamState -ne $NewFileStream) {
                 if ($force -or $PSCmdlet.ShouldProcess($instance, "Changing from `"$($OutputLookup[$FileStreamState])`" to `"$($OutputLookup[$NewFileStream])`"")) {
@@ -151,12 +154,28 @@ function Set-DbaFileStream {
                 Write-Message -Level Verbose -Message "Skipping restart as old and new FileStream values are the same"
                 $RestartOutput = [PSCustomObject]@{Status = 'No restart, as no change in values'}
             }
+            # [PsCustomObject]@{
+            #     SqlInstance   = $server
+            #     OriginalValue = $OutputLookup[$FileStreamState]
+            #     NewValue      = $OutputLookup[$NewFileStream]
+            #     RestartStatus = $RestartOutput.Status
+            # }
+
             [PsCustomObject]@{
-                SqlInstance   = $server
-                OriginalValue = $OutputLookup[$FileStreamState]
-                NewValue      = $OutputLookup[$NewFileStream]
-                RestartStatus = $RestartOutput.Status
-            }
+                ComputerName               = $server.NetName
+                InstanceName               = $server.ServiceName
+                SqlInstance                = $server.DomainInstanceName
+                OrigServiceAccessLevel     = $something
+                OrigServiceAccessLevelDesc = $somedess
+                ServiceAccessLevel         = $serviceFS.AccessLevel
+                ServiceAccessLevelDesc     = $idServiceFS[[int]$serviceFS.AccessLevel]
+                ServiceShareName           = $serviceFS.ShareName
+                InstanceAccessLevel        = $instanceFS.RunningValue
+                InstanceAccessLevelDesc    = $idInstanceFS[[int]$instanceFS.RunningValue]
+                IsConfigured               = $isConfigured
+                PendingRestart             = $pendingRestart
+                Notes                      = $notesMsg
+            } | Select-DefaultView -Exclude ServiceAccessLevel, InstanceAccessLevel
 
         }
     }
