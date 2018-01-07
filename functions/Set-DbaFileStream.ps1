@@ -160,5 +160,4 @@ function Set-DbaFileStream {
 
         }
     }
-    END {}
 }
