@@ -23,9 +23,12 @@ function Set-DbaFileStream {
 		.PARAMETER Credential
 			Credential object used to connect to the computer as a different user.
 
-        .PARAMETER FileStreamLevel
-            The level to of FileStream to be enabled:
-            0 - FileStream disabled
+        .PARAMETER AccessLevel
+            The access level applies at the service and instance level. This command will ensure these do not conflict and therefore is set with one parameter.
+
+            Acceptable value:
+                Disabled
+
             1 - T-Sql Access Only
             2 - T-Sql and Win32 access enabled
             3 - T-Sql, Win32 and Remote access enabled
@@ -64,119 +67,123 @@ function Set-DbaFileStream {
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName='piped')]
         [Alias("ServerInstance", "SqlServer")]
-        [DbaInstance[]]$SqlInstance,
+        [DbaInstance]$SqlInstance,
         [PSCredential]$SqlCredential,
         [PSCredential]$Credential,
-        [ValidateSet("Disabled", "Transact-SQL-Enabled", "Full-Access-Enabled")]
-        [object]$FileStreamLevel,
+        [ValidateSet("Disabled", "Transact-SQL-Enabled", "Full-Access-NoClient", "Full-Access-WithClient")]
+        [string]$AccessLevel,
         [switch]$Force,
         [Alias('Silent')]
         [switch]$EnableException
     )
     begin {
-        $idServiceFS =[ordered]@{
-            0 = 'Disabled'
-            1 = 'Transact-SQL access'
-            2 = 'Transact-SQL and I/O access'
-            3 = 'Transact-SQL, I/O and remote client access'
-        }
-        $idInstanceFS =[ordered]@{
-            0 = 'Disabled'
-            1 = 'Transact-SQL access enabled'
-            2 = 'Full access enabled'
-        }
-
-        if ($FileStreamLevel -notin ('0', '1', '2')) {
-            $NewFileStream = switch ($FileStreamLevel) {
-                "Disabled" {0}
-                "T-Sql Only" {1}
-                "T-Sql and Win-32 Access" {2}
+        if (Test-Bound 'AccessLevel') {
+            switch ($AccessLevel) {
+                'Disabled' {
+                    $serviceAccess = 0
+                    $instanceAccess = 0
+                }
+                'Transact-SQL-Enabled' {
+                    $serviceAccess = 1
+                    $instanceAccess = 1
+                }
+                'Full-Access-NoClient' {
+                    $serviceAccess = 2
+                    $instanceAccess = 2
+                }
+                'Full-Access-WithClient' {
+                    $serviceAccess = 3
+                    $instanceAccess = 2
+                }
             }
-        }
-        else {
-            $NewFileStream = $FileStreamLevel
         }
     }
     process {
-        foreach ($instance in $SqlInstance) {
-            try {
-                $orgFileStreamConfig = Get-DbaFilestream -SqlInstance $instance -SqlCredential
-            }
-            catch {
+        try {
+            $orgFileStreamConfig = Get-DbaFilestream -SqlInstance $SqlInstance -SqlCredential
+        }
+        catch {
+            Stop-Function -Message "Unable to gather original Filestream configuration on $instance" -Target $instance -ErrorRecord $_ -Continue
+        }
 
-            }
+        if ($orgFileStreamConfig.IsConfigured -eq $false -and ($serviceAccess -eq 0 -and $instanceAccess -eq 0)) {
+            Write-Message -Level Output -Message "No action to take on $instance. Filestream is already disabled."
+            continue
+        }
 
+        $instance = $SqlInstance.ComputerName
+        $instanceName = $SqlInstance.InstanceName
+        Write-Message -Level Verbose -Message "Attempting to connect to $instanceName on $instance"
+
+        try {
             $computer = $orgFileStreamConfig.ComputerName
             $instanceName = $orgFileStreamConfig.InstanceName
 
-            Write-Message -Level Verbose -Message "Attempting to connect to $computer"
-            try {
-                $namespace = Get-DbaCmObject -ComputerName $computerName -Namespace root\Microsoft\SQLServer -Query "SELECT NAME FROM __NAMESPACE WHERE NAME LIKE 'ComputerManagement%'" | Where-Object { (Get-DbaCmObject -ComputerName $computerName -Namespace $("root\Microsoft\SQLServer\" + $_.Name) -ClassName FilestreamSettings).Count -gt 0} | Sort-Object Name -Descending | Select-Object -First 1
+            $namespace = Get-DbaCmObject -ComputerName $computerName -Namespace root\Microsoft\SQLServer -Query "SELECT NAME FROM __NAMESPACE WHERE NAME LIKE 'ComputerManagement%'" | Where-Object { (Get-DbaCmObject -ComputerName $computerName -Namespace $("root\Microsoft\SQLServer\" + $_.Name) -ClassName FilestreamSettings).Count -gt 0} | Sort-Object Name -Descending | Select-Object -First 1
 
-                if ($namespace.Name) {
-                    $serviceFS = Get-DbaCmObject -ComputerName $computerName -Namespace $("root\Microsoft\SQLServer\" + $namespace.Name) -ClassName FilestreamSettings | Where-Object InstanceName -eq $instanceName | Select-Object -First 1
-                }
-                else {
-                    Write-Message -Level Warning -Message "No ComputerManagement was found on $computer. Service level information may not be collected." -Target $computer
-                }
-            }
-            catch {
-                Stop-Function -Message "Issue collecting service-level information on $computer for $instanceName" -Target $computer -ErrorRecord $_ -Exception $_.Exception -Continue
-            }
-
-            <# Get Instance-Level information #>
-            try {
-                Write-Message -Level Verbose -Message "Connecting to $instance."
-                $server = Connect-SqlInstance -SqlInstance $instance -SqlCredential $sqlcredential -MinimumVersion 10
-            }
-            catch {
-                Stop-Function -Message "Failure" -Category ConnectionError -ErrorRecord $_ -Target $instance -Continue
-            }
-
-            try {
-                $instanceFS = Get-DbaSpConfigure -SqlInstance $server -ConfigName FilestreamAccessLevel | Select-Object ConfiguredValue, RunningValue
-            }
-            catch {
-                Stop-Function -Message "Issue collectin instance-level configuration on $instanceName" -Target $server -ErrorRecord $_ -Exception $_.Exception -Continue
-            }
-
-            if ($FileStreamState -ne $NewFileStream) {
-                if ($force -or $PSCmdlet.ShouldProcess($instance, "Changing from `"$($OutputLookup[$FileStreamState])`" to `"$($OutputLookup[$NewFileStream])`"")) {
-                    $server.Configuration.FilestreamAccessLevel.ConfigValue = $NewFileStream
-                    $server.alter()
-                }
-
-                if ($force -or $PSCmdlet.ShouldProcess($instance, "Need to restart Sql Service for change to take effect, continue?")) {
-                    $RestartOutput = Restart-DbaSqlService -ComputerName $server.ComputerNamePhysicalNetBIOS -InstanceName $server.InstanceName -Type Engine
-                }
+            if ($namespace.Name) {
+                $serviceFS = Get-DbaCmObject -ComputerName $computerName -Namespace $("root\Microsoft\SQLServer\" + $namespace.Name) -ClassName FilestreamSettings | Where-Object InstanceName -eq $instanceName | Select-Object -First 1
             }
             else {
-                Write-Message -Level Verbose -Message "Skipping restart as old and new FileStream values are the same"
-                $RestartOutput = [PSCustomObject]@{Status = 'No restart, as no change in values'}
+                Write-Message -Level Warning -Message "No ComputerManagement was found on $computer. Service level information may not be collected." -Target $computer
             }
-            # [PsCustomObject]@{
-            #     SqlInstance   = $server
-            #     OriginalValue = $OutputLookup[$FileStreamState]
-            #     NewValue      = $OutputLookup[$NewFileStream]
-            #     RestartStatus = $RestartOutput.Status
-            # }
-
-            [PsCustomObject]@{
-                ComputerName               = $server.NetName
-                InstanceName               = $server.ServiceName
-                SqlInstance                = $server.DomainInstanceName
-                OrigServiceAccessLevel     = $something
-                OrigServiceAccessLevelDesc = $somedess
-                ServiceAccessLevel         = $serviceFS.AccessLevel
-                ServiceAccessLevelDesc     = $idServiceFS[[int]$serviceFS.AccessLevel]
-                ServiceShareName           = $serviceFS.ShareName
-                InstanceAccessLevel        = $instanceFS.RunningValue
-                InstanceAccessLevelDesc    = $idInstanceFS[[int]$instanceFS.RunningValue]
-                IsConfigured               = $isConfigured
-                PendingRestart             = $pendingRestart
-                Notes                      = $notesMsg
-            } | Select-DefaultView -Exclude ServiceAccessLevel, InstanceAccessLevel
-
         }
+        catch {
+            Stop-Function -Message "Issue collecting service-level information on $computer for $instanceName" -Target $computer -ErrorRecord $_ -Exception $_.Exception -Continue
+        }
+
+        <# Get Instance-Level information #>
+        try {
+            Write-Message -Level Verbose -Message "Connecting to $instance."
+            $server = Connect-SqlInstance -SqlInstance $instance -SqlCredential $sqlcredential -MinimumVersion 10
+        }
+        catch {
+            Stop-Function -Message "Failure" -Category ConnectionError -ErrorRecord $_ -Target $instance -Continue
+        }
+
+        try {
+            $instanceFS = Get-DbaSpConfigure -SqlInstance $server -ConfigName FilestreamAccessLevel | Select-Object ConfiguredValue, RunningValue
+        }
+        catch {
+            Stop-Function -Message "Issue collectin instance-level configuration on $instanceName" -Target $server -ErrorRecord $_ -Exception $_.Exception -Continue
+        }
+
+        if ($FileStreamState -ne $NewFileStream) {
+            if ($force -or $PSCmdlet.ShouldProcess($instance, "Changing from `"$($OutputLookup[$FileStreamState])`" to `"$($OutputLookup[$NewFileStream])`"")) {
+                $server.Configuration.FilestreamAccessLevel.ConfigValue = $NewFileStream
+                $server.alter()
+            }
+
+            if ($force -or $PSCmdlet.ShouldProcess($instance, "Need to restart Sql Service for change to take effect, continue?")) {
+                $RestartOutput = Restart-DbaSqlService -ComputerName $server.ComputerNamePhysicalNetBIOS -InstanceName $server.InstanceName -Type Engine
+            }
+        }
+        else {
+            Write-Message -Level Verbose -Message "Skipping restart as old and new FileStream values are the same"
+            $RestartOutput = [PSCustomObject]@{Status = 'No restart, as no change in values'}
+        }
+        # [PsCustomObject]@{
+        #     SqlInstance   = $server
+        #     OriginalValue = $OutputLookup[$FileStreamState]
+        #     NewValue      = $OutputLookup[$NewFileStream]
+        #     RestartStatus = $RestartOutput.Status
+        # }
+
+        [PsCustomObject]@{
+            ComputerName               = $server.NetName
+            InstanceName               = $server.ServiceName
+            SqlInstance                = $server.DomainInstanceName
+            OrigServiceAccessLevel     = $something
+            OrigServiceAccessLevelDesc = $somedess
+            ServiceAccessLevel         = $serviceFS.AccessLevel
+            ServiceAccessLevelDesc     = $idServiceFS[[int]$serviceFS.AccessLevel]
+            ServiceShareName           = $serviceFS.ShareName
+            InstanceAccessLevel        = $instanceFS.RunningValue
+            InstanceAccessLevelDesc    = $idInstanceFS[[int]$instanceFS.RunningValue]
+            IsConfigured               = $isConfigured
+            PendingRestart             = $pendingRestart
+            Notes                      = $notesMsg
+        } | Select-DefaultView -Exclude ServiceAccessLevel, InstanceAccessLevel
+
     }
 }
