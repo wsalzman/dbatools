@@ -1113,7 +1113,7 @@ function Import-DbaCsvToSql {
                     $checkline = Get-Content $file -Last 1
                     $checkcolumns = $checkline.Split($InternalDelimiter)
                     foreach ($checkcolumn in $checkcolumns) {
-                        if ($checkcolumn.StartsWith('"') -and $checkcolumn.EndsWith('"')) {
+                        if ($checkcolumn.StartsWith('"') -or $checkcolumn.EndsWith('"')) {
                             $quoted = $true
                         }
                     }
@@ -1121,7 +1121,8 @@ function Import-DbaCsvToSql {
                     if ($quoted -eq $true) {
                         Write-Warning "The CSV file appears to use quoted identifiers. This may take a little longer."
                         # Thanks for this, Chris! http://www.schiffhauer.com/c-split-csv-values-with-a-regular-expression/
-                        $pattern = "((?<=`")[^`"]*(?=`"($InternalDelimiter|$)+)|(?<=$InternalDelimiter|^)[^$InternalDelimiter`"]*(?=$InternalDelimiter|$))"
+                        #$pattern = "((?<=`")[^`"]*(?=`"($InternalDelimiter|$)+)|(?<=$InternalDelimiter|^)[^$InternalDelimiter`"]*(?=$InternalDelimiter|$))"
+						$pattern = "(?:^|($InternalDelimiter|$))('"(?:[^'"])*'"|[^($InternalDelimiter|$)]*)"
                     }
                     if ($turbo -eq $true -and $first -eq 0) {
                         while ($null -ne ($line = $reader.ReadLine())) {
